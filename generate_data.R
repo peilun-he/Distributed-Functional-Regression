@@ -33,7 +33,7 @@ generate_data <- function(n ,t, dgp)
       #x[i, ] <- x[i, ] + rnorm(length(t), mean = 0, sd = 0.1*sd(x[i, ]))
     }
     beta <- matrix(2 * sin(2*pi*t), nrow = length(t), ncol = 1) # functional coefficient
-    y <- x %*% beta %*% dt + rnorm(n, mean = 0, sd = 0.01) # functional response
+    y <- x %*% beta %*% dt + rnorm(n, mean = 0, sd = 1) # functional response
     z <- NULL
     
   } else if (dgp == "FNPM") {

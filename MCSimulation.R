@@ -3,7 +3,6 @@ library(fda.usc)
 library(fda)
 library(ggplot2)
 
-setwd("/Users/HPL/Desktop/Code")
 source("generate_data.R")
 source("interval_score.R")
 
@@ -11,26 +10,26 @@ source("interval_score.R")
 #   - FLM: functional linear model
 #   - FPLM: functional partial linear model 
 #   - FNPM: functional non-parametric model 
-dgp <- "FPLM"
+dgp <- "FNPM"
 
 # Estimation methods: "basis", "pc", "FPLM", or "FNPM"
 #   - basis: B-spline expansion (only for FLM)
 #   - pc: PCA method (only for FLM)
 #   - FPLM: functional partial linear model 
 #   - FNPM: functional non-parametric model 
-est_method <- "FPLM"
+est_method <- "FNPM"
 
 n1 <- 2000 # number of observations for the training data
 n2 <- 800 # number of observations for the testing data
-n_block <- 2 # number of blocks for distributed learning
+n_block <- 40 # number of blocks for distributed learning
 n_mc <- 200 # number of Monte Carlo experiments
 alpha <- 0.05 # significance level 
 
 if (est_method == "basis") {
   n_basis_x <- 20 # number of basis for functional predictor
-  n_basis_b <- 6 # number of basis for beta function
+  n_basis_b <- 5 # number of basis for beta function
 } else if (est_method == "pc") {
-  n_pc <- 6 # number of PCs used in PCA method 
+  n_pc <- 5 # number of PCs used in PCA method 
 }
 
 # Grid points
@@ -84,7 +83,6 @@ for (mc in 1: n_mc) {
   predict_y <- matrix(0, nrow = n2, ncol = n_block) # predicted responses for testing data in each block
   sd_train_block <- numeric(n_block) # standard deviation of training residuals in each block
   gamma_block <- numeric(n_block) # gamma in each block
-  sd_test_block <- numeric(n_block) # standard deviation of testing residuals in each block
   
   # Split data into different blocks
   set.seed(1111 + mc)
@@ -128,12 +126,10 @@ for (mc in 1: n_mc) {
     } else if (est_method == "pc") {
       # functional linear model using PCA method
       fr_model <- fregre.pc(fdataobj = x_block, y = y_block, l = 1:n_pc)
-      basis_value <- NULL
       beta_hat <- t(fr_model$beta.est$data)
     } else if (est_method == "FNPM") {
       # functional non-parametric model
       fr_model <- fregre.np.cv(fdataobj = x_block, y = y_block, type.CV = "CV.S")
-      basis_value <- NULL
       beta_hat <- NULL
     } else if (est_method == "FPLM") {
       # functional partial linear model
@@ -206,7 +202,6 @@ for (mc in 1: n_mc) {
                             lb = y2_hat - gamma * sd_train, 
                             ub = y2_hat + gamma * sd_train, 
                             alpha = alpha)
-  
 } # end of Monte Carlo
 
 if (est_method == "basis" | est_method == "pc") {
