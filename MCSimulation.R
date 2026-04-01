@@ -122,7 +122,7 @@ for (mc in 1: n_mc) {
       basis_b <- create.bspline.basis(rangeval = range(x_block[['argvals']]), nbasis = n_basis_b)  
       fr_model <- fregre.basis(fdataobj = x_block, y = y_block, basis.x = basis_x, basis.b = basis_b)
       basis_value <- eval.basis(evalarg = t, basisobj = basis_b)
-      beta_hat <- basis_value %*% fr_model$coefficients[2: (n_basis_b+1)] + fr_model$coefficients[1]
+      beta_hat <- basis_value %*% fr_model$coefficients[2: (n_basis_b+1)]
     } else if (est_method == "pc") {
       # functional linear model using PCA method
       fr_model <- fregre.pc(fdataobj = x_block, y = y_block, l = 1:n_pc)
