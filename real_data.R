@@ -80,7 +80,6 @@ for (mc in 1: n_mc) {
   y2 <- y[(n1+1): 215]
   z2 <- z[(n1+1): 215]
   
-  beta_hat_block <- matrix(0, nrow = length(grid), ncol = n_block) # estimated beta in each block
   y_hat <- c() # a vector of all estimated responses
   y_real <- c() # a vector of all real responses
   predict_y <- matrix(0, nrow = n2, ncol = n_block) # predicted responses for testing data in each block
