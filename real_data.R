@@ -3,18 +3,69 @@ library(fda.usc)
 library(fda)
 library(fsemipar)
 library(ggplot2)
+library(saqgetr)
+library(dplyr)
+library(tidyr)
 
 source("generate_data.R")
 source("interval_score.R")
 
-# load data
+# Tecator data
 data(Tecator)
 
-# Data generating process: "FLM", "FPLM", or "FNPM"
-#   - FLM: functional linear model
-#   - FPLM: functional partial linear model 
-#   - FNPM: functional non-parametric model 
-dgp <- "FPLM"
+# Air quality data
+if (file.exists("AirQuality_cleaned.RData")) {
+  load("AirQuality_cleaned.RData")
+} else {
+  start <- "2023-01-01"
+  end <- "2023-12-31"
+  sites <- get_saq_sites() %>%
+    filter(date_start <= as.Date(start) & date_end >= as.Date(end))
+  
+  # PM10
+  pm10 <- get_saq_observations(site = sites$site, 
+                               start = start, 
+                               end = end, 
+                               variable = "pm10")
+  pm10 <- saq_clean_observations(pm10, summary = "hour", valid_only = TRUE, spread = FALSE)
+  pm10 <- pm10 %>%
+    select(site, value) %>%
+    group_by(site) %>%
+    summarise(pm10 = mean(value, na.rm = TRUE), .groups = "drop")
+  
+  # O3
+  o3 <- get_saq_observations(site = sites$site, 
+                             start = start, 
+                             end = end, 
+                             variable = "o3")
+  o3 <- saq_clean_observations(o3, summary = "hour", valid_only = TRUE, spread = FALSE)
+  o3 <- o3 %>%
+    select(site, value) %>%
+    group_by(site) %>%
+    summarise(o3 = mean(value, na.rm = TRUE), .groups = "drop")
+  
+  # NO2
+  no2 <- get_saq_observations(site = sites$site, 
+                              start = start, 
+                              end = end, 
+                              variable = "no2")
+  no2 <- saq_clean_observations(no2, summary = "hour", valid_only = TRUE, spread = FALSE)
+  no2$month <- format(no2$date, "%m")
+  no2 <- no2 %>%
+    select(site, month, value) %>%
+    group_by(site, month) %>%
+    summarise(no2 = mean(value, na.rm = TRUE), .groups = "drop")
+  
+  no2_wide <- no2 %>%
+    pivot_wider(names_from = month, values_from = no2) %>%
+    drop_na()
+  
+  colnames(no2_wide) <- c("site", paste("no2: month", 1:12, sep = " "))
+  
+  air_quality2 <- pm10 %>%
+    inner_join(o3, by = "site") %>%
+    inner_join(no2_wide, by = "site")
+}
 
 # Estimation methods: "basis", "pc", "FPLM", or "FNPM"
 #   - basis: B-spline expansion (only for FLM)
@@ -23,18 +74,34 @@ dgp <- "FPLM"
 #   - FNPM: functional non-parametric model 
 est_method <- "FPLM"
 
-n1 <- 150 # number of observations for the training data
-n2 <- 65 # number of observations for the testing data
-n_block <- 2 # number of blocks for distributed learning
+use_data <- "air quality" # "tecator" or "air quality"
+n_block <- 1 # number of blocks for distributed learning
 n_mc <- 200 # number of Monte Carlo experiments
-alpha <- 0.2 # significance level 
+alpha <- 0.05 # significance level 
 
-if (est_method == "basis") {
-  n_basis_x <- 20 # number of basis for functional predictor
-  n_basis_b <- 5 # number of basis for beta function
-} else if (est_method == "pc") {
-  n_pc <- 5 # number of PCs used in PCA method 
+if (use_data == "tecator") {
+  n1 <- 150 # number of observations for the training data
+  n2 <- 65 # number of observations for the testing data
+  
+  if (est_method == "basis") {
+    n_basis_x <- 20 # number of basis for functional predictor
+    n_basis_b <- 5 # number of basis for beta function
+  } else if (est_method == "pc") {
+    n_pc <- 5 # number of PCs used in PCA method 
+  }
+} else if (use_data == "air quality") {
+  n1 <- 1000 # number of observations for the training data
+  n2 <- 187 # number of observations for the testing data
+  
+  if (est_method == "basis") {
+    n_basis_x <- 10 # number of basis for functional predictor
+    n_basis_b <- 5 # number of basis for beta function
+  } else if (est_method == "pc") {
+    n_pc <- 5 # number of PCs used in PCA method 
+  }
 }
+
+n_total <- n1 + n2 # total number of observations
 
 # Criteria
 rmse1 <- numeric(n_mc) # RMSE for training data
@@ -50,11 +117,18 @@ is2 <- numeric(n_mc) # interval score for testing data
 exe_time <- matrix(0, nrow = n_mc, ncol = n_block) # execution time
 
 # Data
-spectra <- Tecator$absor.spectra
-fat <- Tecator$fat
-protein <- Tecator$protein
-moisture <- Tecator$moisture
-grid <- seq(850, 1050, length.out = 100) # grid points
+if (use_data == "tecator") {
+  spectra <- Tecator$absor.spectra
+  fat <- Tecator$fat
+  protein <- Tecator$protein
+  moisture <- Tecator$moisture
+  grid <- seq(850, 1050, length.out = 100) # grid points
+} else if (use_data == "air quality") {
+  pm10 <- air_quality$pm10
+  o3 <- air_quality$o3
+  no2 <- as.matrix(air_quality[, 4: 15])
+  grid <- seq(1, 12, length.out = 12)
+}
 
 for (mc in 1: n_mc) {
   print(mc)
@@ -63,12 +137,18 @@ for (mc in 1: n_mc) {
   ####################
   ##### Get data #####
   ####################
-  index <- sample(1:215, replace = FALSE)
+  index <- sample(1: n_total, replace = FALSE)
   
   # Resampling
-  x <- spectra[index,] # functional covariate
-  y <- fat[index] # response variable 
-  z <- moisture[index] # non-functional covariate 
+  if (use_data == "tecator") {
+    x <- spectra[index,] # functional covariate
+    y <- fat[index] # response variable 
+    z <- moisture[index] # non-functional covariate 
+  } else if (use_data == "air quality") {
+    x <- no2[index,] # functional covariate
+    y <- pm10[index] # response variable 
+    z <- o3[index] # non-functional covariate 
+  }
   
   # Training data
   x1 <- x[1: n1, ]
@@ -76,9 +156,9 @@ for (mc in 1: n_mc) {
   z1 <- z[1: n1]
   
   # Testing data
-  x2 <- x[(n1+1): 215, ]
-  y2 <- y[(n1+1): 215]
-  z2 <- z[(n1+1): 215]
+  x2 <- x[(n1+1): n_total, ]
+  y2 <- y[(n1+1): n_total]
+  z2 <- z[(n1+1): n_total]
   
   y_hat <- c() # a vector of all estimated responses
   y_real <- c() # a vector of all real responses
